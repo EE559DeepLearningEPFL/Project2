@@ -66,16 +66,16 @@ class Module(object):
         assert layer_type in supported_layer_type, "__init__: layer_type not supported, choose in 'Sequential', 'Linear' and 'Conv2d'."
         
         if layer_type == 'Sequential':
-            assert (activation_type is None) && (specification is None) && (if_batchnorm is None), "__init__: when layer type is Sequential, activation_type and specification should both be None."
-        
+            assert (activation_type is None) and (specification is None) and (if_batchnorm is None), "__init__: when layer type is Sequential, activation_type, specification and if_batchnorm should all be None."
         else:
             assert (type(if_batchnorm) is bool), "__init__: for Linear or Conv2d layer, if_batchnorm should be a boolean."
-            assert (activation_type == None) || (activation_type in supported_activation_type), "__init__: for activation layers, this module only support type of None, sigmoid, tanh and relu."
+            assert (activation_type == None) or (activation_type in supported_activation_type), "__init__: for activation layers, this module only support type of None, sigmoid, tanh and relu."
+            assert specification != None, "__init__: for Linear / Conv2d layers, specification cannot be None"
             if layer_type == 'Linear':
                 self.specification = specification
                 self._initialize_Linear()
             else:
-                assert (type(specification) is tuple) && (len(specification)==2), "__init__: when layer_type is Conv2d, the input specification should be ((channel_out, channel_in, ...), {'padding': ..., 'stride': ...})"
+                assert (type(specification) is tuple) or (len(specification)==2), "__init__: when layer_type is Conv2d, the input specification should be ((channel_out, channel_in, ...), {'padding': ..., 'stride': ...})"
                 self.specification = specification[0]
                 self.conv_param = specification[1]
                 self._initialize_Conv2d()
@@ -107,24 +107,28 @@ class Module(object):
     '''
     
     def sequential_append(self, layer): 
-        assert self.layer_type == 'Sequential', "sequential_append: this method is only for Sequential type module."
+        assert self.layer_type == 'Sequential', \
+            "sequential_append: this method is only for Sequential type module."
         self.layer_sequence.append(layer)
         return
         
     def sequential_forward(self, input):
-        assert self.layer_type == 'Sequential', "sequential_append: this method is only for Sequential type module."
+        assert self.layer_type == 'Sequential', \
+            "sequential_append: this method is only for Sequential type module."
         #
         output, cache = None, None
         return output, cache
     
     def sequential_backward(self, d_output, cache):
-        assert self.layer_type == 'Sequential', "sequential_append: this method is only for Sequential type module."
+        assert self.layer_type == 'Sequential', \
+            "sequential_append: this method is only for Sequential type module."
         #
         d_params = None
         return d_params
     
     def sequential_updata_params(self, d_params, learning_rate):
-        assert self.layer_type == 'Sequential', "sequential_append: this method is only for Sequential type module."
+        assert self.layer_type == 'Sequential', \
+            "sequential_append: this method is only for Sequential type module."
         # for loop of layers
         return
     
@@ -137,20 +141,23 @@ class Module(object):
     '''
         
     def layer_forward(self, input):
-        assert self.layer_type != 'Sequential', "layer_forward(Linear): this method is only for non-Sequential type module."
+        assert self.layer_type != 'Sequential', \
+            "layer_forward(Linear): this method is only for non-Sequential type module."
         #
         output, cache = None, None
         return output, cache
             
     def layer_backward(self, d_output, cache):
-        assert self.layer_type != 'Sequential', "layer_forward: this method is only for non-Sequential type module."
+        assert self.layer_type != 'Sequential', \
+            "layer_forward: this method is only for non-Sequential type module."
         #
         d_input = None
         d_params = {}
         return d_input, d_params
     
     def layer_update_params(self, d_params, learning_rate):
-        assert self.layer_type != 'Sequential', "layer_forward: this method is only for non-Sequential type module."
+        assert self.layer_type != 'Sequential', \
+            "layer_forward: this method is only for non-Sequential type module."
         #
         return
         
@@ -185,7 +192,8 @@ class Module(object):
         return output, cache
     
     def _backward_sigmoid(self, d_output, cache):
-        assert d_output.size() == cache.size(), "_backward_sigmoid: two inputs should be of same size."
+        assert d_output.size() == cache.size(), \
+            "_backward_sigmoid: two inputs should be of same size."
         output = cache
         d_input = d_output*output*(1-output)
         return d_input
@@ -196,7 +204,8 @@ class Module(object):
         return output, cache
     
     def _backward_tanh(self, d_output, cache):
-        assert d_output.size() == cache.size(), "_backward_sigmoid: two inputs should be of same size."
+        assert d_output.size() == cache.size(), \
+            "_backward_sigmoid: two inputs should be of same size."
         output = cache
         d_input = d_output*(1-torch.square(output))
         return d_input
@@ -210,37 +219,44 @@ class Module(object):
     '''
  
     def _initialize_Linear(self):
-        assert (type(self.specification) is tuple) && (len(self.specification) == 2), '_initialize_Linear: for layer_type of Linear, the specification should be a tuple of length 2 (dim_in, dim_out).'
+        print(self.specification)
+        assert (type(self.specification) is tuple) and (len(self.specification) == 2), \
+            "_initialize_Linear: for layer_type of Linear, the specification should be \
+            a tuple of length 2 (dim_in, dim_out)."
         gain = self._activation_gain()
-        std = gain * math.sqrt(2.0/(specification[0], specification[1]))
-        params['weight'] = torch.empty(specification[0], specification[1], dtype=self.dtype, device=self.device).normal_(0, std)
-        params['bias'] = torch.empty(1, specification[1], dtype=self.dtype, device=self.device).normal_(0, std)
+        std = gain * math.sqrt(2.0/(self.specification[0] + self.specification[1]))
+        self.params['weight'] = torch.empty(self.specification[0], self.specification[1], dtype=self.dtype, device=self.device).normal_(0, std)
+        self.params['bias'] = torch.empty(1, self.specification[1], dtype=self.dtype, device=self.device).normal_(0, std)
         
     
     def _initialize_Conv2d(self):
-        assert (type(self.specification) is tuple), '_initialize_Conv2d: for layer_type of Conv2d, the specification should be a tuple.'
-        assert (len(self.specification) == 3) || (len(self.specification) == 4), '_initialize_Conv2d: for layer_type of Linear, the specification should be a tuple of length 3 (channel_out, channel_in, kernel_size) or length 4 (channel_out, channel_in, kernel_height, kernel_width)'
+        assert (type(self.specification) is tuple), \
+            '_initialize_Conv2d: for layer_type of Conv2d, the specification should be a tuple.'
+        assert (len(self.specification) == 3) or (len(self.specification) == 4), \
+            '_initialize_Conv2d: for layer_type of Linear, the specification should \
+            be a tuple of length 3 (channel_out, channel_in, kernel_size) or length \
+            4 (channel_out, channel_in, kernel_height, kernel_width)'
         if len(self.specification) == 3:
             c_out, c_in, k_s = self.specification
             k_h, k_w = k_s, k_s
         else:
             c_out, c_in, k_h, k_w = self.specification
             
-        gain.self._activation_gain()
+        gain = self._activation_gain()
         std = gain * math.sqrt(1.0/(c_in*k_h*k_w))
-        params['weight'] = torch.empty(c_out, c_in, k_h, k_w, dtype=self.dtype, device=self.device).normal_(0, std)
-        params['bias'] = torch.empty(1, c_out, dtype=self.dtype, device=self.device).normal_(0, std)
+        self.params['weight'] = torch.empty(c_out, c_in, k_h, k_w, dtype=self.dtype, device=self.device).normal_(0, std)
+        self.params['bias'] = torch.empty(1, c_out, dtype=self.dtype, device=self.device).normal_(0, std)
         
 
     def _activation_gain(self):
         '''
         gain on weight standard deviation brought by activation function
         '''
-        if self.activation == 'sigmoid' or self.activation == None:
+        if self.activation_type == 'sigmoid' or self.activation_type == None:
             return 1.0
-        elif self.activation == 'tanh':
+        elif self.activation_type == 'tanh':
             return 5.0/3
-        elif self.activation == 'relu':
+        elif self.activation_type == 'relu':
             return math.sqrt(2.0)
         return 1.0
     
@@ -261,15 +277,18 @@ class Module(object):
         
         output: 4-dimensional, (num_samples, channel, width+..., height+...)
         '''
-        assert input.dim == 4, '_zero_padding: This function only supports input tensor of 4-dimensional.'
-        assert (type(padding) is int) || (type(padding) is tuple), '_zero_padding: Wrong padding specification, input type should be int or tuple.'
+        assert input.dim == 4, \
+            '_zero_padding: This function only supports input tensor of 4-dimensional.'
+        assert (type(padding) is int) or (type(padding) is tuple), \
+            '_zero_padding: Wrong padding specification, input type should be int or tuple.'
         
         if type(padding) is int:
             output = torch.zeros(input.size(0), input.size(1), input.size(2)+2*padding, input.size(3)+2*padding, dtype=self.dtype, device=self.device)
             output[:, :, padding:padding+input.size(2), padding:padding+input.size(3)] = input
             
         else:
-            assert len(padding) == 2, '_zero_padding: Only accept tuple of length 2.'
+            assert len(padding) == 2, \
+                '_zero_padding: Only accept tuple of length 2.'
             output = torch.zeros(input.size(0), input.size(1), input.size(2)+2*padding[0], input.size(3)+2*padding[1], dtype=self.dtype, device=self.device)
             output[:, :, padding[0]:padding[0]+input.size(2), padding[1]:padding[1]+input.size(3)] = input
         
