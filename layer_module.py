@@ -57,8 +57,6 @@ class Module(object):
                  params_shape=None, 
                  bn_param={'eps':1e-5, 'momentum':0.9}, 
                  conv_param={'padding':0, 'stride':1},
-                 reg = 0.0,
-                 learning_rate = 1e-3,
                  dtype=torch.float32, 
                  device=None):
         
@@ -68,8 +66,6 @@ class Module(object):
         self.params_shape = params_shape
         self.bn_param = bn_param
         self.conv_param = conv_param
-        self.reg = reg
-        self.lr = learning_rate
         self.dtype = dtype
         self.device = device
         
@@ -104,23 +100,25 @@ class Module(object):
                 self._initialize_Conv2d()
                 
             if if_batchnorm:
-                self.bn_param['if_initailized'] = False
+                self.bn_param['if_initialized'] = False
                 self.bn_param['gamma'] = None
                 self.bn_param['beta'] = None
                 self.bn_param['running_mean'] = None
                 self.bn_param['running_var'] = None
                 
-    ############################################################################    
-    # public methods
+    ############################################################################ 
+    ############################################################################ 
+    ########################## PUBLIC METHODS ##################################
+    ############################################################################
     ############################################################################
     
-    def print_module(self):
-        
+    def print_module(self):        
         return
     
     def append(self, layer):
         assert self.layer_type == 'Sequential', \
             "sequential_append: this method is only for Sequential type module."
+        
         self._sequential_append(layer)
         return
     
@@ -131,23 +129,30 @@ class Module(object):
             output, cache = self._layer_forward(input, mode)
         return output, cache
     
+    def loss(self, output, target, regularization):
+        loss = self._compute_loss(output, target, regularization)
+        d_loss = self._compute_loss_gradient(output, target)
+        return loss, d_loss
+    
     def backward(self, d_output, cache):
         if self.layer_type == 'Sequential':
             d_input, d_params = self._sequential_backward(d_output, cache)
         else:
             d_input, d_params = self._layer_backward(d_output, cache)
-        return d_output, d_params
+        return d_input, d_params
     
-    def update_params(self, d_params, learning_rate):
+    def update_params(self, d_params, learning_rate, regularization):
         if self.layer_type == 'Sequential':
-            self._sequential_update_params(d_params, learning_rate)
+            self._sequential_update_params(d_params, learning_rate, regularization)
         else:
-            self._layer_update_params(d_params, learning_rate)
+            self._layer_update_params(d_params, learning_rate, regularization)
         return
-            
-    ############################################################################    
-    # private methods
-    ############################################################################  
+    
+    ############################################################################ 
+    ############################################################################ 
+    ########################## PRIVATE METHODS #################################
+    ############################################################################
+    ############################################################################
     '''
     module-level forward/backward/updata_params
     '''
@@ -177,8 +182,10 @@ class Module(object):
     def _sequential_append(self, layer): 
         assert self.layer_type == 'Sequential', \
             "sequential_append: this method is only for Sequential type module."
+        
         if (not isempty(self.layer_sequence)) and (layer.layer_type == 'Conv2d'):
-            assert self.layer_sequence[len(self.layer_sequence)-1].layer_type is not 'Linear', "sequential_append: Conv2d should not follow Linear layer."
+            assert self.layer_sequence[len(self.layer_sequence)-1].layer_type is not 'Linear', \
+                "sequential_append: Conv2d should not follow Linear layer."
         self.layer_sequence.append(layer)
         return
         
@@ -196,7 +203,7 @@ class Module(object):
         d_params = None
         return d_params
     
-    def _sequential_update_params(self, d_params, learning_rate):
+    def _sequential_update_params(self, d_params, learning_rate, regularization):
         assert self.layer_type == 'Sequential', \
             "sequential_append: this method is only for Sequential type module."
         # for loop of layers
@@ -213,26 +220,82 @@ class Module(object):
     def _layer_forward(self, input, mode='train'):
         assert self.layer_type != 'Sequential', \
             "layer_forward(Linear): this method is only for non-Sequential type module."
-        #
-        output, cache = None, None
-        return output, cache
+
+        cache = []
+        
+        # Linear/Conv2d
+        if self.layer_type == 'Linear':
+            out1, cache1 = self._forward_Linear(input)   
+        else:
+            out1, cache1 = self._forward_Conv2d(input)
+        cache.append(cache1)
+        
+        # batchnorm
+        if self.if_batchnorm:
+            out2, cache2 = self._forward_batchnorm(out1, mode)
+        else:
+            out2, cache2 = out1, None
+        cache.append(cache2)
+        
+        # activation
+        if self.activation_type == 'tanh':
+            output, cache3 = self._forward_tanh(out2)        
+        elif self.activation_type == 'relu':
+            output, cache3 = self._forward_relu(out2)
+        elif self.activation_type == 'sigmoid':
+            output, cache3 = self._forward_sigmoid(out2)
+        else:
+            output, cache3 = out2, None
+        cache.append(cache3)
+        
+        return output, tuple(cache)
             
     def _layer_backward(self, d_output, cache):
         assert self.layer_type != 'Sequential', \
             "layer_forward: this method is only for non-Sequential type module."
-        #
-        d_input = None
+        
         d_params = {}
+        
+        # activation
+        if self.activation_type == 'tanh':
+            d_out2 = self._backward_tanh(d_output, cache[2])        
+        elif self.activation_type == 'relu':
+            d_out2 = self._backward_relu(d_output, cache[2])
+        elif self.activation_type == 'sigmoid':
+            d_out2 = self._backward_sigmoid(d_output, cache[2])
+        else:
+            d_out2 = d_output
+        
+        # batchnorm
+        if self.if_batchnorm:
+            d_out1, d_bn_params = self._backward_batchnorm(d_out2, cache[1])
+        else:
+            d_out1, d_bn_params = d_out2, {}
+        
+        # Linear/Conv2d
+        if self.layer_type == 'Linear':
+            d_input, d_layer_params = self._backward_Linear(d_out1, cache[0])
+        else:
+            d_input, d_layer_params = self._backward_Conv2d(d_out1, cache[0])
+        
+        d_params = {**d_bn_params, **d_layer_params}
+        
         return d_input, d_params
     
-    def _layer_update_params(self, d_params, learning_rate):
+    def _layer_update_params(self, d_params, learning_rate, regularization):
         assert self.layer_type != 'Sequential', \
             "layer_forward: this method is only for non-Sequential type module."
-        #
+        
+        self.params['weight'] -= learning_rate*d_params['d_weight'] + \
+                                    regularization*self.params['weight']
+        self.params['bias'] -= learning_rate*d_params['d_bias']
+        
+        if self.if_batchnorm:
+            self.bn_param['gamma'] -= learning_rate*d_params['d_gamma']
+            self.bn_param['beta'] -= learning_rate*d_params['d_beta']
+            
         return
         
- 
-    
     '''
     Layer forward/backward pass related:
     
@@ -244,19 +307,28 @@ class Module(object):
     '''
     
     def _forward_Linear(self, input):
+        # reshape to N*dim_in, in case the input comes from a Conv2d layer
         input_row = torch.reshape(input, (input.size(0), -1))
+        
         assert self.params_shape[0] == input_row.size()[1], \
             "_forward_Linear: input and parameter dimension not matched."
+        
+        # output = Input*W + b
         output = torch.matmul(input, self.params['weight']) + self.params['bias']
         cache = input
+        
         return output, cache
     
     def _backward_Linear(self, d_output, cache):
         input = cache
+        N = input.size(0)
         d_params = {}
-        d_input = torch.reshape(torch.matmul(d_output, self.params['weight'].t), input.size())
-        d_params['weight'] = torch.matmul(torch.reshape(input, (input.size(0), -1)).t, d_output)
-        d_params['bias'] = torch.sum(d_output, axis=0, keepdim=True)
+        # d_input = d_output*(W')
+        d_input = torch.reshape(torch.matmul(d_output, torch.t(self.params['weight'])), input.size())
+        # d_W = d_input'*d_output
+        d_params['d_weight'] = torch.matmul(torch.t(torch.reshape(input, (input.size(0), -1))), d_output)/N
+        # d_b = d_output
+        d_params['d_bias'] = torch.sum(d_output, axis=0, keepdim=True)/N
         return d_input, d_params
     
     def _forward_Conv2d(self, input):
@@ -283,13 +355,13 @@ class Module(object):
         if mode == 'train':
             sample_mean = torch.mean(input, axis=0, keepdim=True)
             sample_var = torch.var(input, axis=0, keepdim=True)
-            input_normed = (input - sample_mean)/torch.sqrt(sample_var+self.bn_params['eps'])
+            input_normed = (input - sample_mean)/torch.sqrt(sample_var+self.bn_param['eps'])
             running_mean = momentum*running_mean + (1-momentum)*sample_mean
             running_var = momentum*running_var + (1-momentum)*sample_var
             output = gamma*input_normed + beta
             cache = (input, input_normed, sample_mean, sample_var)
         else:
-            input_normed = (input-running_mean) / torch.sqrt(running_var+self.bn_params['eps'])
+            input_normed = (input-running_mean) / torch.sqrt(running_var+self.bn_param['eps'])
             output = gamma*input_normed + beta
             cache = None
         
@@ -310,8 +382,8 @@ class Module(object):
         d_input = d_input_normed*inv_std + 2.0*d_sample_var*(input-sample_mean)/N + 1.0*d_sample_mean/N
         
         d_params = {}
-        d_params['d_gamma'] = torch.sum(d_output*input_normed, axis=0, keepdim=True)
-        d_params['d_beta'] = torch.sum(d_output, axis=0, keepdim=True)
+        d_params['d_gamma'] = torch.sum(d_output*input_normed, axis=0, keepdim=True)/N
+        d_params['d_beta'] = torch.sum(d_output, axis=0, keepdim=True)/N
         
         return d_input, d_params
         
@@ -355,7 +427,7 @@ class Module(object):
         return d_input
     
     def _forward_relu(self, input):
-        output = torch.maximum(input, 0)
+        output = torch.max(input, torch.zeros_like(input))
         cache = input
         return output, cache
     
@@ -367,6 +439,36 @@ class Module(object):
         return d_input
     
     '''
+    MSE loss related
+    '''
+    def _compute_loss(self, output, target, regularization):
+        assert output.size() == target.size(), \
+            "output and target should be of the same size."
+        N = output.size(0)
+        loss = torch.sum(torch.square(output-target))/N
+        
+        # add l2 regularization
+        reg_term = self._compute_regularization_term(regularization)
+        loss += reg_term
+        
+        return loss
+    
+    def _compute_loss_gradient(self, output, target):
+        assert output.size() == target.size(), \
+            "output and target should be of the same size."
+        d_loss = 2*(output-target)
+        return d_loss
+    
+    def _compute_regularization_term(self, regularization):
+        if self.layer_type == 'Sequential':
+            # to complete
+            reg_term = 0.0
+        else:
+            reg_term = 0.5*regularization*torch.sum(torch.square(self.params['weight']))
+        return reg_term
+    
+    
+    '''
     Parameter initialization related:
     
         _initialize_Linear()
@@ -375,7 +477,7 @@ class Module(object):
     '''
  
     def _initialize_Linear(self):
-        print(self.params_shape)
+        print("self.params_shape is ", self.params_shape, ", format (dim_in, dim_out)")
         assert len(self.params_shape) == 2, \
             "_initialize_Linear: for layer_type of Linear, the params_shape should be \
             a tuple of length 2 (dim_in, dim_out)."
@@ -424,8 +526,6 @@ class Module(object):
     
     '''
     Other functional methods:
-    
-    
     '''
             
     
