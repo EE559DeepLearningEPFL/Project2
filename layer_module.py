@@ -12,7 +12,7 @@ class Module(object):
         
         self.if_batchnorm = None
         self.activation_type = None
-        self.specification = None
+        self.params_shape = None
         self.params = {}
         self.bn_param = {}
         self.conv_param = None
@@ -24,7 +24,7 @@ class Module(object):
         self.layer_type = 'Linear'   
         self.if_batchnorm = True / False
         self.activation_type = None / 'sigmoid' / 'tanh' / 'relu'
-        self.specification = (dim_in, dim_out)
+        self.params_shape = (dim_in, dim_out)
         self.params = {'weight': ..., 'bias': ...}
         self.bn_param = {'eps': 1e-5, 'momentum': 0.9, ... }
         
@@ -38,7 +38,7 @@ class Module(object):
         self.layer_type = 'Conv2d'
         self.if_batchnorm = True / False
         self.activation_type = None / 'sigmoid' / 'tanh' / 'relu'
-        self.specification = (channel_out, channel_in, kernel_size) / (channel_out, channel_in, kernel_height, kernel_width)
+        self.params_shape = (channel_out, channel_in, kernel_size) / (channel_out, channel_in, kernel_height, kernel_width)
         self.conv_param = {'padding': padding, 'stride': stride}
         self.params = {'weight': ..., 'bias': ...}
         self.bn_param = {'eps': 1e-5, 'momentum': 0.9, ... }
