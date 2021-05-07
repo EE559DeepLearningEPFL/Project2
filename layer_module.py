@@ -4,51 +4,6 @@ torch.set_grad_enabled(False)
 
 class Module(object):
     
-    '''
-    Example:
-        ---------------- Sequential --------------------
-        self.layer_type = 'Sequential'
-        self.layer_sequence = [layer1, layer2, ...]
-        
-        self.if_batchnorm = None
-        self.activation_type = None
-        self.params_shape = None
-        self.params = {}
-        self.bn_param = {}
-        self.conv_param = None
-        
-        self.dtype = dtype
-        self.device = device
-        
-        ------------------ Linear---------------------
-        self.layer_type = 'Linear'   
-        self.if_batchnorm = True / False
-        self.activation_type = None / 'sigmoid' / 'tanh' / 'relu'
-        self.params_shape = (dim_in, dim_out)
-        self.params = {'weight': ..., 'bias': ...}
-        self.bn_param = {'eps': 1e-5, 'momentum': 0.9, ... }
-        
-        self.dtype = dtype
-        self.device = device
-        
-        self.conv_param = None 
-        self.layer_sequence = []
-        
-        ---------------- Conv2d --------------------
-        self.layer_type = 'Conv2d'
-        self.if_batchnorm = True / False
-        self.activation_type = None / 'sigmoid' / 'tanh' / 'relu'
-        self.params_shape = (channel_out, channel_in, kernel_size) / (channel_out, channel_in, kernel_height, kernel_width)
-        self.conv_param = {'padding': padding, 'stride': stride}
-        self.params = {'weight': ..., 'bias': ...}
-        self.bn_param = {'eps': 1e-5, 'momentum': 0.9, ... }
-        
-        self.dtype = dtype
-        self.device = device
-        
-        self.layer_sequence = []
-    '''
-    
     # constructor
     def __init__(self, 
                  layer_type, 
@@ -64,8 +19,8 @@ class Module(object):
         self.if_batchnorm = if_batchnorm
         self.activation_type = activation_type
         self.params_shape = params_shape
-        self.bn_param = bn_param
-        self.conv_param = conv_param
+        self.bn_param = bn_param.copy()
+        self.conv_param = conv_param.copy()
         self.dtype = dtype
         self.device = device
         
@@ -183,7 +138,7 @@ class Module(object):
         assert self.layer_type == 'Sequential', \
             "sequential_append: this method is only for Sequential type module."
         
-        if (not isempty(self.layer_sequence)) and (layer.layer_type == 'Conv2d'):
+        if (len(self.layer_sequence) != 0) and (layer.layer_type == 'Conv2d'):
             assert self.layer_sequence[len(self.layer_sequence)-1].layer_type is not 'Linear', \
                 "sequential_append: Conv2d should not follow Linear layer."
         self.layer_sequence.append(layer)
@@ -193,20 +148,32 @@ class Module(object):
         assert self.layer_type == 'Sequential', \
             "sequential_append: this method is only for Sequential type module."
         #
-        output, cache = None, None
+        # output, cache = None, None
+        cache = []
+        output = input
+        for layer in self.layer_sequence:
+            # print("Forward Layer ", ii)
+            output, cache_layer = layer._layer_forward(output, mode)
+            cache.append(cache_layer)
         return output, cache
     
     def _sequential_backward(self, d_output, cache):
         assert self.layer_type == 'Sequential', \
             "sequential_append: this method is only for Sequential type module."
         #
-        d_params = None
-        return d_params
+        d_params = []
+        d_input = d_output
+        for ii in range(len(self.layer_sequence)-1, -1, -1):
+            # print("Forward Layer ", ii)
+            d_input, d_params_layer = self.layer_sequence[ii]._layer_backward(d_input, cache[ii])
+            d_params = [d_params_layer] + d_params
+        return d_input, d_params
     
     def _sequential_update_params(self, d_params, learning_rate, regularization):
         assert self.layer_type == 'Sequential', \
             "sequential_append: this method is only for Sequential type module."
-        # for loop of layers
+        for ii, layer in enumerate(self.layer_sequence):
+            layer._layer_update_params(d_params[ii], learning_rate, regularization)
         return
     
     '''
@@ -308,13 +275,15 @@ class Module(object):
     
     def _forward_Linear(self, input):
         # reshape to N*dim_in, in case the input comes from a Conv2d layer
-        input_row = torch.reshape(input, (input.size(0), -1))
+        ## input_row = torch.reshape(input, (input.size(0), -1))
+        input_row = input.reshape((input.size(0), -1))
         
         assert self.params_shape[0] == input_row.size()[1], \
             "_forward_Linear: input and parameter dimension not matched."
         
         # output = Input*W + b
-        output = torch.matmul(input, self.params['weight']) + self.params['bias']
+        ## output = torch.matmul(input, self.params['weight']) + self.params['bias']
+        output = input.matmul(self.params['weight']) + self.params['bias']
         cache = input
         
         return output, cache
@@ -324,11 +293,14 @@ class Module(object):
         N = input.size(0)
         d_params = {}
         # d_input = d_output*(W')
-        d_input = torch.reshape(torch.matmul(d_output, torch.t(self.params['weight'])), input.size())
+        ## d_input = torch.reshape(torch.matmul(d_output, torch.t(self.params['weight'])), input.size())
+        d_input = d_output.matmul(self.params['weight'].t()).reshape(input.size())
         # d_W = d_input'*d_output
-        d_params['d_weight'] = torch.matmul(torch.t(torch.reshape(input, (input.size(0), -1))), d_output)/N
+        ## d_params['d_weight'] = torch.matmul(torch.t(torch.reshape(input, (input.size(0), -1))), d_output)/N
+        d_params['d_weight'] = input.reshape((input.size(0), -1)).t().matmul(d_output)
         # d_b = d_output
-        d_params['d_bias'] = torch.sum(d_output, axis=0, keepdim=True)/N
+        ## d_params['d_bias'] = torch.sum(d_output, axis=0, keepdim=True)/N
+        d_params['d_bias'] = d_output.sum(dim=0, keepdim=True)
         return d_input, d_params
     
     def _forward_Conv2d(self, input):
@@ -345,6 +317,8 @@ class Module(object):
         assert (mode == 'train') or (mode == 'test'), \
             "_forward_batchnorm: mode should be 'train' or 'test'."
         
+        # print(self.bn_param['if_initialized'])
+        
         if not self.bn_param['if_initialized']:
             self._initialize_bn_param(input)
         
@@ -353,15 +327,19 @@ class Module(object):
         running_mean, running_var = self.bn_param['running_mean'], self.bn_param['running_var']
                 
         if mode == 'train':
-            sample_mean = torch.mean(input, axis=0, keepdim=True)
-            sample_var = torch.var(input, axis=0, keepdim=True)
-            input_normed = (input - sample_mean)/torch.sqrt(sample_var+self.bn_param['eps'])
+            ## sample_mean = torch.mean(input, axis=0, keepdim=True)
+            sample_mean = input.mean(dim=0, keepdim=True)
+            ## sample_var = torch.var(input, axis=0, keepdim=True)
+            sample_var = input.var(dim=0, keepdim=True)
+            ## input_normed = (input - sample_mean)/torch.sqrt(sample_var+self.bn_param['eps'])
+            input_normed = (input - sample_mean)/(sample_var+self.bn_param['eps']).sqrt()
             running_mean = momentum*running_mean + (1-momentum)*sample_mean
             running_var = momentum*running_var + (1-momentum)*sample_var
             output = gamma*input_normed + beta
             cache = (input, input_normed, sample_mean, sample_var)
         else:
-            input_normed = (input-running_mean) / torch.sqrt(running_var+self.bn_param['eps'])
+            ## input_normed = (input-running_mean) / torch.sqrt(running_var+self.bn_param['eps'])
+            input_normed = (input - running_mean)/(running_var+self.bn_param['eps']).sqrt()
             output = gamma*input_normed + beta
             cache = None
         
@@ -375,15 +353,16 @@ class Module(object):
         N = input.size(0)
         
         d_input_normed = gamma*d_output
-        inv_std = 1.0 / torch.sqrt(sample_var+self.bn_param['eps'])
-        d_sample_var = -0.5*torch.sum(d_input_normed*(input-sample_mean), axis=0, keepdim=True)*(inv_std**3)
-        d_sample_mean = -1.0*torch.sum(d_input_normed*inv_std, axis=0, keepdim=True) \
-                        -2.0*d_sample_var*torch.mean(input-sample_mean, axis=0, keepdim=True)
+        ## inv_std = 1.0 / torch.sqrt(sample_var+self.bn_param['eps'])
+        inv_std = 1.0 / (sample_var+self.bn_param['eps']).sqrt()
+        d_sample_var = -0.5*(d_input_normed*(input-sample_mean)).sum(dim=0, keepdim=True)*(inv_std**3)
+        d_sample_mean = -1.0*(d_input_normed*inv_std).sum(dim=0, keepdim=True) \
+                        -2.0*d_sample_var*(input-sample_mean).mean(dim=0, keepdim=True)
         d_input = d_input_normed*inv_std + 2.0*d_sample_var*(input-sample_mean)/N + 1.0*d_sample_mean/N
         
         d_params = {}
-        d_params['d_gamma'] = torch.sum(d_output*input_normed, axis=0, keepdim=True)/N
-        d_params['d_beta'] = torch.sum(d_output, axis=0, keepdim=True)/N
+        d_params['d_gamma'] = (d_output*input_normed).sum(dim=0, keepdim=True)
+        d_params['d_beta'] = d_output.sum(dim=0, keepdim=True)
         
         return d_input, d_params
         
@@ -403,7 +382,7 @@ class Module(object):
     '''
     
     def _forward_sigmoid(self, input):
-        output = torch.sigmoid(input)
+        output = input.sigmoid()
         cache = output
         return output, cache
     
@@ -415,7 +394,7 @@ class Module(object):
         return d_input
     
     def _forward_tanh(self, input):
-        output = torch.tanh(input)
+        output = input.tanh()
         cache = output
         return output, cache
     
@@ -423,11 +402,12 @@ class Module(object):
         assert d_output.size() == cache.size(), \
             "_backward_tanh: two inputs should be of same size."
         output = cache
-        d_input = d_output*(1-torch.square(output))
+        d_input = d_output*(1-output.square())
         return d_input
     
     def _forward_relu(self, input):
-        output = torch.max(input, torch.zeros_like(input))
+        ## output = torch.max(input, torch.zeros_like(input))
+        output = input.max(torch.empty(input.size(), dtype=self.dtype, device=self.device).fill_(0.0))
         cache = input
         return output, cache
     
@@ -445,7 +425,7 @@ class Module(object):
         assert output.size() == target.size(), \
             "output and target should be of the same size."
         N = output.size(0)
-        loss = torch.sum(torch.square(output-target))/N
+        loss = (output-target).square().sum()/N
         
         # add l2 regularization
         reg_term = self._compute_regularization_term(regularization)
@@ -464,7 +444,7 @@ class Module(object):
             # to complete
             reg_term = 0.0
         else:
-            reg_term = 0.5*regularization*torch.sum(torch.square(self.params['weight']))
+            reg_term = 0.5*regularization*self.params['weight'].square().sum()
         return reg_term
     
     
@@ -517,10 +497,15 @@ class Module(object):
         return 1.0
     
     def _initialize_bn_param(self, input):
-        self.bn_param['gamma'] = torch.ones([1]+list(input.size())[1:], dtype=self.dtype, device=self.device)
-        self.bn_param['beta'] = torch.zeros([1]+list(input.size())[1:], dtype=self.dtype, device=self.device)
-        self.bn_param['running_mean'] = torch.zeros([1]+list(input.size())[1:], dtype=self.dtype, device=self.device)
-        self.bn_param['running_var'] = torch.zeros([1]+list(input.size())[1:], dtype=self.dtype, device=self.device)
+        ## self.bn_param['gamma'] = torch.ones([1]+list(input.size())[1:], dtype=self.dtype, device=self.device)
+        print(input.size())
+        self.bn_param['gamma'] = torch.empty([1]+list(input.size())[1:], dtype=self.dtype, device=self.device).fill_(1.0)
+        ## self.bn_param['beta'] = torch.zeros([1]+list(input.size())[1:], dtype=self.dtype, device=self.device)
+        self.bn_param['beta'] = torch.empty([1]+list(input.size())[1:], dtype=self.dtype, device=self.device).fill_(0.0)
+        ## self.bn_param['running_mean'] = torch.zeros([1]+list(input.size())[1:], dtype=self.dtype, device=self.device)
+        self.bn_param['running_mean'] = torch.empty([1]+list(input.size())[1:], dtype=self.dtype, device=self.device).fill_(0.0)
+        ## self.bn_param['running_var'] = torch.zeros([1]+list(input.size())[1:], dtype=self.dtype, device=self.device)
+        self.bn_param['running_var'] = torch.empty([1]+list(input.size())[1:], dtype=self.dtype, device=self.device).fill_(0.0)
         self.bn_param['if_initialized'] = True
         return
     
