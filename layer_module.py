@@ -498,7 +498,7 @@ class Module(object):
     
     def _initialize_bn_param(self, input):
         ## self.bn_param['gamma'] = torch.ones([1]+list(input.size())[1:], dtype=self.dtype, device=self.device)
-        print(input.size())
+        # print(input.size())
         self.bn_param['gamma'] = torch.empty([1]+list(input.size())[1:], dtype=self.dtype, device=self.device).fill_(1.0)
         ## self.bn_param['beta'] = torch.zeros([1]+list(input.size())[1:], dtype=self.dtype, device=self.device)
         self.bn_param['beta'] = torch.empty([1]+list(input.size())[1:], dtype=self.dtype, device=self.device).fill_(0.0)
