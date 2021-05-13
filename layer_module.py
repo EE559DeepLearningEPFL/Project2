@@ -277,13 +277,13 @@ class Module(object):
         # reshape to N*dim_in, in case the input comes from a Conv2d layer
         ## input_row = torch.reshape(input, (input.size(0), -1))
         input_row = input.reshape((input.size(0), -1))
-        
+
         assert self.params_shape[0] == input_row.size()[1], \
             "_forward_Linear: input and parameter dimension not matched."
         
         # output = Input*W + b
         ## output = torch.matmul(input, self.params['weight']) + self.params['bias']
-        output = input.matmul(self.params['weight']) + self.params['bias']
+        output = input_row.matmul(self.params['weight']) + self.params['bias']
         cache = input
         
         return output, cache
@@ -304,13 +304,85 @@ class Module(object):
         return d_input, d_params
     
     def _forward_Conv2d(self, input):
-        output = None
-        cache = None
+        assert input.dim()==4, \
+            "_forward_Conv2d: this function only accept 4-dimensional input."
+        assert self.params['weight'].dim()==4, \
+            "_forward_Conv2d: wrong dimension of weight, check constructor and initialization."
+        assert input.size(1)==self.params['weight'].size(1), \
+            "_forward_Conv2d: channel number unmatching."
+        
+        stride = self.conv_param['stride']
+        assert (type(stride) is int) or ((type(stride) is tuple) and (len(stride)==2)), \
+            "_forward_Conv2d: wrong stride type, should reconstruct the module."
+        if type(stride) is int:
+            step_h, step_w = stride, stride
+        else:
+            step_h, step_w = stride
+            
+        # print("padding is:", self.conv_param['padding'])
+        # print("stride is:", stride)
+        
+        input_pad = self._zero_padding(input)
+        N, C_in, H, W = input_pad.size()
+        
+        weight, bias = self.params['weight'], self.params['bias']
+        C_out, _, K_H, K_W = weight.size()
+        
+        # print("Input shape before padding:", input.size())
+        # print("Input shape after padding:", input_pad.size())
+        # print("Weight shape:", weight.size())
+             
+        assert ((H-K_H)%step_h==0) and ((W-K_W)%step_w==0), \
+            "_forward_Conv2d: inappropriate kernel size, stride step or padding."
+        
+        stride_h, stride_w = int((H-K_H)/step_h+1), int((W-K_W)/step_w+1)
+        output = torch.empty((N, C_out, stride_h, stride_w), dtype=self.dtype, device=self.device)
+        
+        # print("Output shape:", output.size())
+        
+        for n in range(N):
+            for c in range(C_out):
+                for h in range(stride_h):
+                    for w in range(stride_w):
+                        output[n, c, h, w] = (input_pad[n, :, h*step_h:h*step_h+K_H, w*step_w:w*step_w+K_W]*weight[c]).sum()+bias[c]
+        
+        cache = input_pad
         return output, cache
     
     def _backward_Conv2d(self, d_output, cache):
-        d_input = None
-        d_params = {}
+        
+        input_pad = cache
+        weight, bias = self.params['weight'], self.params['bias']
+        padding, stride = self.conv_param['padding'], self.conv_param['stride']
+        if type(stride) is int:
+            step_h, step_w = stride, stride
+        else:
+            step_h, step_w = stride
+        
+        N, C_in, H, W = input_pad.size()
+        C_out, _, K_H, K_W = weight.size()
+        _, _, stride_h, stride_w = d_output.size()
+        
+        d_weight = torch.empty(weight.size(), dtype=self.dtype, device=self.device)
+        d_bias = torch.empty(bias.size(), dtype=self.dtype, device=self.device)
+        d_input_pad = torch.empty(input_pad.size(), dtype=self.dtype, device=self.device)
+        
+        # print("d_weight shape is:", d_weight.size())
+        # print("d_bias shape is:", d_bias.size())
+        # print("d_input_pad shape is:", d_input_pad.size())
+        
+        for n in range(N):
+            for c in range(C_out):
+                for h in range(stride_h):
+                    for w in range(stride_w):
+                        window = input_pad[n, :, h*step_h:h*step_h+K_H, w*step_w:w*step_w+K_W]
+                        d_bias[c] += d_output[n, c, h, w]
+                        d_weight[c, :, :, :] += window * d_output[n, c, h, w]
+                        d_input_pad[n, :, h*step_h:h*step_h+K_H, w*step_w:w*step_w+K_W] += weight[c, :, :, : ] * d_output[n, c, h, w]
+        
+        d_input = self._zero_unpadding(d_input_pad)
+        # print("d_input shape is:", d_input.size())
+        d_params = {'d_weight': d_weight, 'd_bias': d_bias}
         return d_input, d_params
     
     def _forward_batchnorm(self, input, mode):
@@ -481,7 +553,7 @@ class Module(object):
         gain = self._activation_gain()
         std = gain * math.sqrt(1.0/(c_in*k_h*k_w))
         self.params['weight'] = torch.empty(c_out, c_in, k_h, k_w, dtype=self.dtype, device=self.device).normal_(0, std)
-        self.params['bias'] = torch.empty(1, c_out, dtype=self.dtype, device=self.device).normal_(0, std)
+        self.params['bias'] = torch.empty((c_out, ), dtype=self.dtype, device=self.device).normal_(0, std)
         
 
     def _activation_gain(self):
@@ -514,7 +586,7 @@ class Module(object):
     '''
             
     
-    def _zero_padding(self, input, padding):
+    def _zero_padding(self, input):
         '''
         Zero padding:
         
@@ -523,20 +595,39 @@ class Module(object):
         
         output: 4-dimensional, (num_samples, channel, width+..., height+...)
         '''
-        assert input.dim == 4, \
+        padding = self.conv_param['padding']
+        
+        assert input.dim() == 4, \
             '_zero_padding: This function only supports input tensor of 4-dimensional.'
         assert (type(padding) is int) or (type(padding) is tuple), \
             '_zero_padding: Wrong padding params_shape, input type should be int or tuple.'
         
         if type(padding) is int:
-            output = torch.zeros(input.size(0), input.size(1), input.size(2)+2*padding, input.size(3)+2*padding, dtype=self.dtype, device=self.device)
+            output = torch.empty(input.size(0), input.size(1), input.size(2)+2*padding, input.size(3)+2*padding, dtype=self.dtype, device=self.device).fill_(0)
             output[:, :, padding:padding+input.size(2), padding:padding+input.size(3)] = input
             
         else:
             assert len(padding) == 2, \
                 '_zero_padding: Only accept tuple of length 2.'
-            output = torch.zeros(input.size(0), input.size(1), input.size(2)+2*padding[0], input.size(3)+2*padding[1], dtype=self.dtype, device=self.device)
+            output = torch.empty(input.size(0), input.size(1), input.size(2)+2*padding[0], input.size(3)+2*padding[1], dtype=self.dtype, device=self.device).fill_(0)
             output[:, :, padding[0]:padding[0]+input.size(2), padding[1]:padding[1]+input.size(3)] = input
         
         return output.contiguous()
+    
+    def _zero_unpadding(self, input):
+        
+        padding = self.conv_param['padding']
+        assert input.dim() == 4, \
+            '_zero_padding: This function only supports input tensor of 4-dimensional.'
+        assert (type(padding) is int) or (type(padding) is tuple), \
+            '_zero_padding: Wrong padding params_shape, input type should be int or tuple.'
+        
+        if type(padding) is int:
+            output = input[:, :, padding:-padding, padding:-padding]
+            
+        else:
+            assert len(padding) == 2, \
+                '_zero_padding: Only accept tuple of length 2.'
+            output = input[:, :, padding[0]:-padding[0], padding[1]:-padding[1]]
+        return output
     
