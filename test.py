@@ -92,7 +92,7 @@ mod3.append(Module(layer_type='Linear',
               dtype=dtype, device=device))
 mod3.append(Module(layer_type='Linear', 
               if_batchnorm=False, 
-              activation_type='relu', 
+              activation_type=None, 
               params_shape=(20, 1), 
               dtype=dtype, device=device))
 
@@ -217,7 +217,6 @@ print("-------------------------------------------------------")
 print("--------- Sequential module (SGD+Conv2d) --------------")
 print("-------------------------------------------------------")
 
-device = 'cuda:0'
 nb=100
 data_input = torch.empty((nb, 3, 4, 4), dtype=dtype, device=device).uniform_(0, 1)
 data_target = ((data_input.reshape(nb, -1)-0.5).norm(p=2, dim=1, keepdim=True)<2)*1
@@ -226,7 +225,7 @@ print("    Input size:", data_input.size(), " target size:", data_target.size())
 print('    Average of train_target==1 is', torch.mean(data_target*1.0).item())
 print(" ")
 
-net2 = NeuralNet(layer_type='Sequential', learning_rate=1e-3, 
+net2 = NeuralNet(layer_type='Sequential', learning_rate=3e-3, 
                  regularization=0.0, epoch=300, batch_size=64,
                  dtype=dtype, device=device)
 net2.append(Module(layer_type='Conv2d', 
@@ -248,7 +247,7 @@ net2.append(Module(layer_type='Linear',
               dtype=dtype, device=device))
 net2.append(Module(layer_type='Linear', 
               if_batchnorm=False, 
-              activation_type='relu', 
+              activation_type=None, 
               params_shape=(10, 1), 
               dtype=dtype, device=device))
 
