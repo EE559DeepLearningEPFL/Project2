@@ -4,7 +4,8 @@ from layer_module import Module
 from neural_network import NeuralNet
 import matplotlib.pyplot as plt
 
-device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+# device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+device = 'cpu'
 dtype = torch.float32
 
 print("-------------------------------------------------------")
@@ -208,9 +209,6 @@ print("-------------------------------------------------------")
 print("---------------- End of section -----------------------")
 print("-------------------------------------------------------")
 
-input("Press Enter and Exit...")
-
-'''
 print("The next session is a neural network with 2 convolutional layers,")
 print("It may take quite some time to finish.")
 input("Press Enter and move on to next section...")
@@ -285,4 +283,4 @@ print("-------------------------------------------------------")
 print("---------------- End of section -----------------------")
 print("-------------------------------------------------------")
 
-'''
+input("Press Enter and Exit...")

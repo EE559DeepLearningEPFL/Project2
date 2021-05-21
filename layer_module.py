@@ -180,7 +180,7 @@ class Module(object):
             "_sequential_append: cannot append sequential type to the sequence."
         
         if (len(self.layer_sequence) != 0) and (layer.layer_type == 'Conv2d'):
-            assert self.layer_sequence[len(self.layer_sequence)-1].layer_type is not 'Linear', \
+            assert self.layer_sequence[len(self.layer_sequence)-1].layer_type != 'Linear', \
                 "_sequential_append: Conv2d should not follow Linear layer."
         
         self.layer_sequence.append(layer)
@@ -418,9 +418,9 @@ class Module(object):
         C_out, _, K_H, K_W = weight.size()
         _, _, stride_h, stride_w = d_output.size()
         
-        d_weight = torch.empty(weight.size(), dtype=self.dtype, device=self.device)
-        d_bias = torch.empty(bias.size(), dtype=self.dtype, device=self.device)
-        d_input_pad = torch.empty(input_pad.size(), dtype=self.dtype, device=self.device)
+        d_weight = torch.empty(weight.size(), dtype=self.dtype, device=self.device).fill_(0)
+        d_bias = torch.empty(bias.size(), dtype=self.dtype, device=self.device).fill_(0)
+        d_input_pad = torch.empty(input_pad.size(), dtype=self.dtype, device=self.device).fill_(0)
         
         # derivation is in the report
         for n in range(N):
