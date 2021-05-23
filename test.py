@@ -157,7 +157,7 @@ print('Average of train_target==1 is', torch.mean(data_target*1.0).item())
 print(" ")
 
 net1 = NeuralNet(layer_type='Sequential', learning_rate=2e-3, 
-                 regularization=0.05, epoch=1000, batch_size=64,
+                 regularization=0.05, iteration=1000, batch_size=64,
                  dtype=dtype, device=device)
 net1.append(Module(layer_type='Linear', 
               if_batchnorm=True, 
@@ -185,13 +185,13 @@ net1.print_module()
 print(" ")
 
 print("learning_rate = {}, regularization = {},  ".format(net1.learning_rate, net1.regularization))
-print("epoch = {}, batch_size = {}".format(net1.epoch, net1.batch_size))
+print("iteration = {}, batch_size = {}".format(net1.iteration, net1.batch_size))
 print(" ")
 
 loss_arr = net1.train(data_input, data_target)
 plt.figure(figsize=(7, 4))
 plt.plot(loss_arr)
-plt.xlabel('epoch')
+plt.xlabel('iteration')
 plt.ylabel('Loss')
 plt.show()
 output, _ = net1.forward(data_input, mode='test')
@@ -217,7 +217,7 @@ print("-------------------------------------------------------")
 print("--------- Sequential module (SGD+Conv2d) --------------")
 print("-------------------------------------------------------")
 
-nb=100
+nb=500
 data_input = torch.empty((nb, 3, 4, 4), dtype=dtype, device=device).uniform_(0, 1)
 data_target = ((data_input.reshape(nb, -1)-0.5).norm(p=2, dim=1, keepdim=True)<2)*1
 print("Training data:")
@@ -225,30 +225,30 @@ print("    Input size:", data_input.size(), " target size:", data_target.size())
 print('    Average of train_target==1 is', torch.mean(data_target*1.0).item())
 print(" ")
 
-net2 = NeuralNet(layer_type='Sequential', learning_rate=3e-3, 
-                 regularization=0.0, epoch=300, batch_size=64,
+net2 = NeuralNet(layer_type='Sequential', learning_rate=2.1e-3, 
+                 regularization=0.22, iteration=400, batch_size=32,
                  dtype=dtype, device=device)
 net2.append(Module(layer_type='Conv2d', 
               if_batchnorm=True, 
               activation_type='relu', 
-              params_shape=(5, 3, 3, 3), 
+              params_shape=(8, 3, 3, 3), 
               conv_param={'padding':1, 'stride':1},
               dtype=dtype, device=device))
 net2.append(Module(layer_type='Conv2d', 
               if_batchnorm=True, 
               activation_type='relu', 
-              params_shape=(1, 5, 3, 3), 
+              params_shape=(16, 8, 3, 3), 
               conv_param={'padding':1, 'stride':1},
               dtype=dtype, device=device))
 net2.append(Module(layer_type='Linear', 
               if_batchnorm=True, 
               activation_type='relu', 
-              params_shape=(16, 10), 
+              params_shape=(16*4*4, 100), 
               dtype=dtype, device=device))
 net2.append(Module(layer_type='Linear', 
               if_batchnorm=False, 
               activation_type=None, 
-              params_shape=(10, 1), 
+              params_shape=(100, 1), 
               dtype=dtype, device=device))
 
 print("Module information:")
@@ -256,14 +256,14 @@ net2.print_module()
 print(" ")
 
 print("learning_rate = {}, regularization = {},  ".format(net2.learning_rate, net2.regularization))
-print("epoch = {}, batch_size = {}".format(net2.epoch, net2.batch_size))
+print("iteration = {}, batch_size = {}".format(net2.iteration, net2.batch_size))
 print(" ")
 
 loss_arr = net2.train(data_input, data_target)
 
 plt.figure(figsize=(7, 4))
 plt.plot(loss_arr)
-plt.xlabel('epoch')
+plt.xlabel('iteration')
 plt.ylabel('Loss')
 plt.show()
 output, _ = net2.forward(data_input, mode='test')

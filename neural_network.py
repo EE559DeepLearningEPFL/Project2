@@ -12,7 +12,7 @@ class NeuralNet(Module):
                  conv_param={'padding':0, 'stride':1},
                  learning_rate=1e-3,
                  regularization=0.0,
-                 epoch=100,
+                 iteration=100,
                  batch_size=32,
                  dtype=torch.float32, 
                  device=None):
@@ -28,7 +28,7 @@ class NeuralNet(Module):
         
         self.learning_rate = learning_rate
         self.regularization = regularization
-        self.epoch = epoch
+        self.iteration = iteration
         self.batch_size = batch_size
         
     def train(self, input, target):
@@ -36,7 +36,7 @@ class NeuralNet(Module):
         reg = self.regularization/self.batch_size
         
         loss_arr = []
-        for e in range(self.epoch):
+        for e in range(self.iteration):
             indices = torch.empty((self.batch_size, ), 
                                   dtype=torch.int64, 
                                   device=self.device).random_(0, input.size(0))
